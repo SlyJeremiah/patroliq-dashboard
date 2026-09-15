@@ -1,0 +1,41 @@
+{
+  "name": "patroliq-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "PATROLIQ manager and administrator dashboard (zrGISsolutions)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource/roboto-mono": "^5.3.0",
+    "@tanstack/react-query": "^5.102.8",
+    "@turf/area": "^7.4.0",
+    "@turf/bbox": "^7.4.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.4.0",
+    "maplibre-gl": "^5.24.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.3",
+    "recharts": "^3.10.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^26.5.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "jsdom": "^30.0.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6",
+    "vitest": "^3.2.7"
+  }
+}

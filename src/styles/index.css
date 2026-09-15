@@ -1,0 +1,144 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource/roboto-mono/400.css';
+@import '@fontsource/roboto-mono/500.css';
+@import 'maplibre-gl/dist/maplibre-gl.css';
+
+/* PATROLIQ Design System v1.0 (Design Document s.2–3), web type scale in px. */
+@theme {
+  --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Roboto Mono', ui-monospace, Menlo, Consolas, monospace;
+
+  --color-forest: #102c26;
+  --color-forest-mid: #1b4332;
+  --color-mid-green: #2d6a4f;
+  --color-emerald: #52b788;
+  --color-mint: #d8f3dc;
+  --color-cream: #f7e7ce;
+  --color-cream-tint: #fdfaf5;
+  --color-canvas: #f5f2eb;
+  --color-line: #e6dfd0;
+  --color-line-soft: #f0eadf;
+
+  --color-danger: #c0392b;
+  --color-danger-bg: #f8d7da;
+  --color-amber: #e67e22;
+  --color-warn-bg: #fff3cd;
+  --color-success: #27ae60;
+  --color-info: #2980b9;
+  --color-info-bg: #eaf3fa;
+
+  --color-ranger: #1a6496;
+  --color-manager: #7b2d8b;
+  --color-admin: #2d6a4f;
+  --color-grey: #6c757d;
+
+  --color-ink: #1a1a1a;
+  --color-ink-2: #4a4a4a;
+  --color-ink-3: #6c757d;
+  --color-disabled: #adb5bd;
+  --color-readonly: #f2f4f6;
+
+  --text-h1: 28px;
+  --text-h1--line-height: 34px;
+  --text-h2: 22px;
+  --text-h2--line-height: 28px;
+  --text-h3: 18px;
+  --text-h3--line-height: 24px;
+  --text-body: 15px;
+  --text-body--line-height: 22px;
+  --text-small: 13px;
+  --text-small--line-height: 18px;
+  --text-label: 12px;
+  --text-caption: 11px;
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-pop: 0 8px 24px rgba(16, 44, 38, 0.18);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 22px;
+    color: var(--color-ink);
+    background: var(--color-canvas);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-emerald);
+    outline-offset: 2px;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@layer components {
+  .icon {
+    font-family: 'Material Symbols Rounded';
+    font-weight: normal;
+    font-style: normal;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    direction: ltr;
+    font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .icon-fill {
+    font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
+  /* `overline` is also a Tailwind text-decoration utility; cancel the line so this label style wins. */
+  .overline {
+    text-decoration-line: none;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .mono {
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+  }
+}
+
+@keyframes piq-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.55); }
+  70% { box-shadow: 0 0 0 12px rgba(39, 174, 96, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0); }
+}
+@keyframes piq-sos {
+  0% { box-shadow: 0 0 0 0 rgba(192, 57, 43, 0.7); }
+  70% { box-shadow: 0 0 0 18px rgba(192, 57, 43, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(192, 57, 43, 0); }
+}
+@keyframes piq-critical {
+  0%, 100% { background-color: #ffffff; }
+  50% { background-color: #fcedee; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+.maplibregl-ctrl-attrib { font-size: 10px; }
+.maplibregl-popup-content { border-radius: 10px; padding: 10px 12px; font-family: var(--font-sans); box-shadow: var(--shadow-pop); }

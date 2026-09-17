@@ -119,7 +119,7 @@ export function GridStep({ area }: { area: Area }) {
     <div className="flex flex-col gap-4 p-5">
       <div className="flex items-baseline gap-3">
         <h2 className="flex-1 text-h2 font-semibold text-ink">GRTS grid</h2>
-        <span className="text-[12px] text-ink-3">Square cells clipped to the boundary</span>
+        <span className="text-[12px] text-ink-3">Hexagonal cells clipped to the boundary</span>
       </div>
       {!canEdit && <ReadOnlyNote>Only organisation administrators can generate the grid.</ReadOnlyNote>}
       {!grtsOn && <Banner tone="warning" title="GRTS module not in your licence">Grid generation needs the GRTS module. Ask zrGISsolutions to enable it.</Banner>}

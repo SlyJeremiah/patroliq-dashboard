@@ -16,7 +16,8 @@ npm run dev                  # http://localhost:5173
 ```
 
 The backend must allow the dashboard origin: set `CORS_ALLOWED_ORIGINS=http://localhost:5173` on the API.
-Demo sign-in (seeded backend): `grace.mutasa@grtts.co.zw` / `manager123` + TOTP from the authenticator secret printed by `seed_demo`.
+Demo sign-in (seeded backend): `grace.mutasa@grtts.co.zw` / `manager123` + TOTP from the authenticator secret printed by `seed_demo`
+(no code is asked for when the API runs with `WEB_TOTP_REQUIRED=false`).
 
 Checks: `npm run typecheck` · `npm test` · `npm run build`.
 
@@ -66,6 +67,6 @@ src/
 
 ## Security notes
 - Token auth (no cookies). The token is kept in `sessionStorage` (cleared when the tab closes) unless "Remember this device" is
-  ticked. Sessions expire server-side after 8 h idle. TOTP is required for managers and admins.
+  ticked. Sessions expire server-side after 8 h idle. TOTP is required for managers and admins unless the API sets `WEB_TOTP_REQUIRED=false`.
 - All downloads (reports, exports, media) go through authenticated API calls; nothing sensitive is public.
 - Tenancy is enforced by the API; the dashboard only ever sees the signed-in organisation's data.

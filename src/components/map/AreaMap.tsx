@@ -254,7 +254,8 @@ export function AreaMap(props: AreaMapProps) {
   }, [map, props.fitTo, props.boundary])
 
   return (
-    <div className={className} style={{ position: 'relative' }}>
+    // Keep a caller's `absolute`/`fixed` positioning; an inline `relative` would override it and collapse the map to 0 px.
+    <div className={className} style={/\b(absolute|fixed)\b/.test(className ?? '') ? undefined : { position: 'relative' }}>
       {/* Inline position: MapLibre adds .maplibregl-map { position: relative } which would otherwise collapse the container. */}
       <div ref={container} style={{ position: 'absolute', inset: 0 }} />
       {children}

@@ -3,7 +3,11 @@ import type { Feature, FeatureCollection, LineString, MultiPolygon, Point, Polyg
 
 export type Role = 'platform_admin' | 'org_admin' | 'manager' | 'ranger' | 'researcher' | 'viewer'
 export type Severity = 'low' | 'medium' | 'high' | 'critical'
-export type RangerStatus = 'active' | 'paused' | 'offline' | 'sos'
+/**
+ * Precedence on the server: sos > paused > active > online > offline.
+ * `online` = the phone synced or sent a position recently but the ranger has no open patrol.
+ */
+export type RangerStatus = 'active' | 'paused' | 'online' | 'offline' | 'sos'
 
 export interface User {
   id: string
@@ -161,6 +165,8 @@ export interface DashboardSummary {
   rangers_total: number
   rangers_active: number
   rangers_paused: number
+  /** Added with the `online` ranger status; older servers omit it (treat as 0). */
+  rangers_online?: number
   rangers_offline: number
   open_alerts: number
   critical_alerts: number
@@ -237,7 +243,18 @@ export interface Observation {
   ai_species_confidence?: number | null
   recorded_at: string
   voice_transcript?: string | null
-  media?: { id: string; kind: string; url?: string }[]
+  media?: ObservationMedia[]
+}
+
+export interface ObservationMedia {
+  id: string
+  observation_client_uuid?: string | null
+  kind: 'photo' | 'video' | 'audio' | (string & {})
+  content_type?: string | null
+  size_bytes?: number | null
+  sha256?: string | null
+  /** Absolute API URL (`…/api/v1/media/<id>/file/`); requires the Authorization header. */
+  url?: string | null
 }
 
 export interface Patrol {

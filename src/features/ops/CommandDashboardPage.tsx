@@ -3,17 +3,21 @@ import clsx from 'clsx'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAlerts, useRangers, useSummary, useTeams } from '@/api/hooks'
-import type { AlertItem, RangerStatus } from '@/api/types'
+import type { AlertItem, Observation, RangerStatus } from '@/api/types'
 import { useArea } from '@/auth/AreaContext'
 import { useAuth } from '@/auth/AuthContext'
 import { AreaMap, LayerToggles, MapLegend, type MapPoint } from '@/components/map/AreaMap'
 import { EmptyState, ErrorState, Icon, IconButton, Spinner, StatsRow } from '@/components/ui'
 import { fmt, rangerStatusColor } from '@/lib/format'
 import { useSosAlarm } from './alarm'
-import { alarmAlerts, chipCounts, isSafety, matchesChip, mergeAlerts, openSosAlerts, sortAlerts, statusCounts, type AlertChip } from './opsLogic'
+import {
+  OBS_COLOR, OBS_PERIOD_LABEL, RANGER_STATUSES, STATUS_LABEL, alarmAlerts, chipCounts, isSafety, matchesChip, mergeAlerts, openSosAlerts, sortAlerts, statusCounts,
+  type AlertChip, type ObservationPeriod,
+} from './opsLogic'
 import { AlertCard, ChipMenu, UrgentSosBanner, useAcknowledge } from './parts'
+import { ObservationDetailPanel } from './ObservationDetail'
 import { RangerDetailPanel } from './RangerDetail'
-import { MAP_FILL, SATELLITE_CONFIGURED, addMapControls, alertPins, rangerPoints, useAreaLayers, usePatrolTracks } from './useOpsMap'
+import { MAP_FILL, SATELLITE_CONFIGURED, addMapControls, alertPins, rangerPoints, useAreaLayers, useObservationLayer, usePatrolTracks } from './useOpsMap'
 
 export function CommandDashboardPage() {
   const { areaId, area, loading: areaLoading } = useArea()
@@ -37,6 +41,10 @@ export function CommandDashboardPage() {
   const [panelOpen, setPanelOpen] = useState(true)
   const [selectedRanger, setSelectedRanger] = useState<string | null>(null)
   const [routeFor, setRouteFor] = useState<string | null>(null)
+  const [showObs, setShowObs] = useState(true)
+  const [obsPeriod, setObsPeriod] = useState<ObservationPeriod>('24h')
+  const [selectedObs, setSelectedObs] = useState<Observation | null>(null)
+  const obs = useObservationLayer(areaId, { enabled: showObs, period: obsPeriod })
   const { acknowledge, pendingId, error: ackError, clearError } = useAcknowledge()
 
   const alerts = useMemo(() => sortAlerts(mergeAlerts(ackQ.data, activeQ.data)), [activeQ.data, ackQ.data])
@@ -57,8 +65,8 @@ export function CommandDashboardPage() {
     [alerts, alertTypeFilter],
   )
   const points = useMemo<MapPoint[]>(
-    () => [...layers.bases, ...alertPins(mapAlerts), ...rangerPoints(visibleRangers)],
-    [layers.bases, mapAlerts, visibleRangers],
+    () => [...layers.bases, ...obs.points, ...alertPins(mapAlerts), ...rangerPoints(visibleRangers)],
+    [layers.bases, obs.points, mapAlerts, visibleRangers],
   )
   const panelAlerts = alerts.filter((a) => matchesChip(a, chip))
   const cc = chipCounts(alerts)
@@ -66,9 +74,19 @@ export function CommandDashboardPage() {
   const onPoint = (p: MapPoint) => {
     if (p.kind === 'ranger') {
       setSelectedRanger(p.id)
+      setSelectedObs(null)
       setRouteFor(null)
+    } else if (p.kind === 'observation') {
+      const o = obs.find(p.id)
+      if (o) {
+        setSelectedObs(o)
+        setSelectedRanger(null)
+        setRouteFor(null)
+      }
     } else if (p.kind === 'pin') navigate(`/alerts/${p.id}`)
   }
+  // Keep the open observation fresh across polls; fall back to the last copy if it left the period window.
+  const openObs = selectedObs ? obs.find(selectedObs.client_uuid) ?? selectedObs : null
 
   if (!areaLoading && !areaId) {
     return (
@@ -87,7 +105,7 @@ export function CommandDashboardPage() {
       <UrgentSosBanner alerts={sos} alarm={alarm} cellLabel={layers.cellLabel} />
       <StatsRow
         items={[
-          { label: 'Active rangers', value: s ? s.rangers_active : '—', sub: s ? `of ${s.rangers_total} rangers` : undefined },
+          { label: 'Active rangers', value: s ? s.rangers_active : '—', sub: s ? `of ${s.rangers_total} rangers · ${s.rangers_online ?? 0} online` : undefined },
           { label: 'Open alerts', value: s ? s.open_alerts : '—', sub: s ? `${s.critical_alerts} critical` : undefined, tone: s && s.critical_alerts > 0 ? 'danger' : 'default' },
           { label: 'Sync rate', value: s ? fmt.pct(s.sync_rate_24h) : '—', sub: 'last 24 h' },
           ...(grtsModule ? [{ label: 'GRTS coverage', value: s ? fmt.pct(s.grts_coverage_month) : '—', sub: 'this month' }] : []),
@@ -104,7 +122,7 @@ export function CommandDashboardPage() {
           showHeat={layers.aiRisk && heat}
           tracks={tracks}
           points={points}
-          selectedPointId={selectedRanger}
+          selectedPointId={selectedRanger ?? openObs?.client_uuid ?? null}
           satellite={satellite}
           onPointClick={onPoint}
           onReady={addMapControls}
@@ -118,10 +136,7 @@ export function CommandDashboardPage() {
               onChange={(v) => setRangerFilter(v as typeof rangerFilter)}
               options={[
                 { value: 'all', label: `All rangers · ${counts.total}` },
-                { value: 'active', label: `Active · ${counts.active}` },
-                { value: 'paused', label: `Paused · ${counts.paused}` },
-                { value: 'offline', label: `Offline · ${counts.offline}` },
-                { value: 'sos', label: `SOS · ${counts.sos}` },
+                ...RANGER_STATUSES.map((st) => ({ value: st, label: `${STATUS_LABEL[st]} · ${counts[st]}` })),
               ]}
             />
             <ChipMenu
@@ -145,10 +160,21 @@ export function CommandDashboardPage() {
                 { value: 'none', label: 'Hide alert pins' },
               ]}
             />
+            {showObs && (
+              <ChipMenu
+                dark
+                icon="visibility"
+                label="Observations period"
+                value={obsPeriod}
+                onChange={(v) => setObsPeriod(v as ObservationPeriod)}
+                options={(['24h', 'today', '7d'] as ObservationPeriod[]).map((v) => ({ value: v, label: `Observations · ${OBS_PERIOD_LABEL[v]}` }))}
+              />
+            )}
           </div>
           <LayerToggles
             layers={[
               ...(layers.aiRisk ? [{ key: 'heat', icon: 'local_fire_department', label: 'Heat', on: heat, onToggle: () => setHeat((v) => !v) }] : []),
+              { key: 'obs', icon: 'visibility', label: 'Obs', on: showObs, onToggle: () => setShowObs((v) => !v), hint: showObs ? 'Hide observations' : 'Show observations' },
               ...(grtsModule ? [{ key: 'grts', icon: 'grid_on', label: 'GRTS', on: grts, onToggle: () => setGrts((v) => !v) }] : []),
               ...(hasModule('collars') ? [{ key: 'collars', icon: 'pets', label: 'Collars', on: false, onToggle: () => undefined, disabled: true, hint: 'No collar feed connected' }] : []),
               ...(SATELLITE_CONFIGURED ? [{ key: 'sat', icon: 'satellite_alt', label: 'Sat', on: satellite, onToggle: () => setSatellite((v) => !v) }] : []),
@@ -156,15 +182,19 @@ export function CommandDashboardPage() {
           />
           <MapLegend
             items={[
-              { color: rangerStatusColor.active, label: `Active · ${counts.active}` },
-              { color: rangerStatusColor.paused, label: `Paused · ${counts.paused}` },
-              { color: rangerStatusColor.offline, label: `Offline · ${counts.offline}`, dashed: true },
-              { color: rangerStatusColor.sos, label: `SOS · ${counts.sos}` },
+              ...(['active', 'paused', 'online', 'offline', 'sos'] as RangerStatus[]).map((st) => ({ color: rangerStatusColor[st]!, label: `${STATUS_LABEL[st]} · ${counts[st]}`, dashed: st === 'offline' })),
+              ...(showObs ? obs.categories.map((c) => ({ color: OBS_COLOR[c.category] ?? OBS_COLOR.other!, label: `${fmt.titleCase(c.category)} obs. · ${c.count}` })) : []),
               ...(grtsModule && grts && layers.aiRisk && layers.riskCount.high + layers.riskCount.critical > 0
                 ? [{ color: '#C0392B', label: `High-risk cells · ${layers.riskCount.high + layers.riskCount.critical}`, square: true }]
                 : []),
             ]}
           />
+          {(obs.error || obs.truncated) && (
+            <div className="absolute top-[68px] left-4 z-10 flex items-center gap-2 rounded-full bg-forest/92 px-3.5 py-1.5 text-[12px] text-cream">
+              <Icon name={obs.error ? 'error' : 'info'} size={16} />
+              {obs.error ? 'Observations did not load' : `Limit reached · showing ${obs.observations.length} observations`}
+            </div>
+          )}
           {rangersQ.isLoading && (
             <div className="absolute bottom-10 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-forest/92 px-4 py-2 text-small text-cream">
               <Spinner size={14} /> Loading ranger positions
@@ -173,7 +203,7 @@ export function CommandDashboardPage() {
           {!rangersQ.isLoading && rangers.length > 0 && !rangers.some((r) => r.last_position) && (
             <div className="absolute bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-full bg-forest/92 px-4 py-2 text-small text-cream">No ranger has sent a position yet</div>
           )}
-          {!panelOpen && !selectedRanger && (
+          {!panelOpen && !selectedRanger && !openObs && (
             <button
               type="button"
               onClick={() => setPanelOpen(true)}
@@ -186,7 +216,19 @@ export function CommandDashboardPage() {
           )}
         </AreaMap>
 
-        {selectedRanger ? (
+        {openObs && !selectedRanger ? (
+          <ObservationDetailPanel
+            key={openObs.client_uuid}
+            observation={openObs}
+            rangers={rangers}
+            cellLabel={layers.cellLabel}
+            onClose={() => setSelectedObs(null)}
+            onRanger={(id) => {
+              setSelectedObs(null)
+              setSelectedRanger(id)
+            }}
+          />
+        ) : selectedRanger ? (
           <RangerDetailPanel
             rangerId={selectedRanger}
             areaId={areaId}

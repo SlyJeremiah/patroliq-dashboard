@@ -22,6 +22,7 @@ export const fmt = {
 export const rangerStatusColor: Record<string, string> = {
   active: '#27AE60',
   paused: '#E67E22',
+  online: '#1A6496',
   sos: '#C0392B',
   offline: '#6C757D',
 }

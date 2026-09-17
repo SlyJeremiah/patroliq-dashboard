@@ -3,11 +3,12 @@ import clsx from 'clsx'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useRanger } from '@/api/hooks'
-import type { Observation, RangerDetail as RangerDetailT } from '@/api/types'
+import type { RangerDetail as RangerDetailT } from '@/api/types'
+import { MediaGallery } from '@/components/media/AuthMedia'
 import { Button, EmptyState, ErrorState, Icon, IconButton, SeverityBadge, Spinner, severityColor } from '@/components/ui'
 import { fmt, rangerStatusColor } from '@/lib/format'
 import { MessageModal, RangerStatusLabel } from './parts'
-import { alertIcon, alertTitle, formatElapsed, initials, kindLabel } from './opsLogic'
+import { OBS_ICON, alertIcon, alertTitle, formatElapsed, initials, observationLabel, observationKey } from './opsLogic'
 
 const CELL_CHIPS = 12
 
@@ -31,13 +32,6 @@ function Stat({ value, label }: { value: ReactNode; label: string }) {
     </div>
   )
 }
-
-function observationLabel(o: Pick<Observation, 'category' | 'subtype' | 'species_name' | 'count'>): string {
-  if (o.species_name) return `${o.species_name}${o.count ? ` · ${o.count}` : ''}`
-  return o.subtype ? kindLabel(o.subtype) : fmt.titleCase(o.category)
-}
-
-const OBS_ICON: Record<string, string> = { wildlife: 'pets', threat: 'warning', carcass: 'skull', habitat: 'forest', infrastructure: 'construction', other: 'more_horiz' }
 
 function batteryIcon(pct?: number | null) {
   if (pct == null) return 'battery_unknown'
@@ -116,15 +110,18 @@ export function RangerDetailContent({ rangerId, areaId, onToggleRoute, routeShow
           {r.recent_observations.length ? (
             <ul className="flex flex-col">
               {r.recent_observations.slice(0, 5).map((o) => (
-                <li key={o.client_uuid} className="flex h-9 items-center gap-2.5 text-small">
-                  <Icon name={OBS_ICON[o.category] ?? 'visibility'} size={18} className={o.severity ? undefined : 'text-mid-green'} />
-                  <span className="min-w-0 flex-1 truncate text-ink">
-                    {observationLabel(o)}
-                    {o.cell_label && <span className="text-ink-3"> · {o.cell_label}</span>}
-                  </span>
-                  <span className="mono text-[12px] text-ink-3" title={fmt.dateTime(o.recorded_at)}>
-                    {isToday(o.recorded_at) ? fmt.time(o.recorded_at) : fmt.date(o.recorded_at).replace(/ \d{4}$/, '')}
-                  </span>
+                <li key={observationKey(o)} className="flex flex-col gap-1 py-1 text-small">
+                  <div className="flex min-h-7 items-center gap-2.5">
+                    <Icon name={OBS_ICON[o.category] ?? 'visibility'} size={18} className={o.severity ? undefined : 'text-mid-green'} />
+                    <span className="min-w-0 flex-1 truncate text-ink">
+                      {observationLabel(o)}
+                      {o.cell_label && <span className="text-ink-3"> · {o.cell_label}</span>}
+                    </span>
+                    <span className="mono text-[12px] text-ink-3" title={fmt.dateTime(o.recorded_at)}>
+                      {isToday(o.recorded_at) ? fmt.time(o.recorded_at) : fmt.date(o.recorded_at).replace(/ \d{4}$/, '')}
+                    </span>
+                  </div>
+                  {o.media?.length ? <MediaGallery media={o.media} title={observationLabel(o)} size={48} max={4} className="pl-[28px]" /> : null}
                 </li>
               ))}
             </ul>

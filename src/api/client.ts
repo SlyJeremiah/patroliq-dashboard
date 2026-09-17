@@ -134,6 +134,46 @@ export async function fetchFile(path: string, query?: Query): Promise<{ blob: Bl
   return { blob: await res.blob(), filename: match ? decodeURIComponent(match[1]) : 'download' }
 }
 
+/**
+ * Where to fetch an API path or absolute URL, and whether the auth token may go with it.
+ * The token is only ever sent to URLs under the configured API base. An absolute URL on another origin whose path is under
+ * the API base path (e.g. the server built `http://` links behind a TLS proxy) is re-pointed at the configured base; any
+ * other host is fetched without the token.
+ */
+export function resolveApiRequest(pathOrUrl: string, base: string = API_BASE): { url: string; withToken: boolean } {
+  const baseUrl = new URL(base, typeof window !== 'undefined' ? window.location.href : undefined)
+  const basePath = baseUrl.pathname.endsWith('/') ? baseUrl.pathname : `${baseUrl.pathname}/`
+  if (!/^[a-z][a-z\d+.-]*:/i.test(pathOrUrl)) {
+    // API-relative path such as `media/<id>/file/`.
+    return { url: new URL(pathOrUrl.replace(/^\//, ''), `${baseUrl.origin}${basePath}`).toString(), withToken: true }
+  }
+  let target: URL
+  try {
+    target = new URL(pathOrUrl)
+  } catch {
+    return { url: pathOrUrl, withToken: false }
+  }
+  if (target.protocol !== 'http:' && target.protocol !== 'https:') return { url: pathOrUrl, withToken: false }
+  if (!target.pathname.startsWith(basePath)) return { url: target.toString(), withToken: false }
+  if (target.origin === baseUrl.origin) return { url: target.toString(), withToken: true }
+  return { url: `${baseUrl.origin}${target.pathname}${target.search}`, withToken: true }
+}
+
+/** Authenticated binary fetch (media files) by API path or absolute URL. Errors use the API envelope (`ApiError`). */
+export async function fetchBlob(pathOrUrl: string, signal?: AbortSignal): Promise<Blob> {
+  const { url, withToken } = resolveApiRequest(pathOrUrl)
+  const token = withToken ? tokenStore.get() : null
+  let res: Response
+  try {
+    res = await fetch(url, { headers: token ? { Authorization: `Token ${token}` } : {}, signal })
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e
+    throw new ApiError(0, 'network_error', 'Cannot reach the PATROLIQ server. Check your connection.')
+  }
+  if (!res.ok) throw await toApiError(res)
+  return res.blob()
+}
+
 export async function downloadFile(path: string, query?: Query, fallbackName?: string) {
   const { blob, filename } = await fetchFile(path, query)
   const url = URL.createObjectURL(blob)

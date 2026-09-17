@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { Map as MlMap } from 'maplibre-gl'
 import { useAlerts, usePositionHistory, useRangers, useTeams } from '@/api/hooks'
-import type { RangerLive, RangerStatus } from '@/api/types'
+import type { Observation, RangerLive, RangerStatus } from '@/api/types'
 import { useArea } from '@/auth/AreaContext'
 import { useAuth } from '@/auth/AuthContext'
 import { AreaMap, type MapPoint } from '@/components/map/AreaMap'
@@ -12,26 +12,28 @@ import { EmptyState, ErrorState, Icon, IconButton, Select, Spinner, TextInput, T
 import { fmt, rangerStatusColor } from '@/lib/format'
 import { useSosAlarm } from './alarm'
 import {
-  STATUS_LABEL, alarmAlerts, filterRangers, initials, interpolateAt, isSafety, lastSeen, mergeAlerts, openSosAlerts, sortAlerts, sortRangers,
-  statusCounts, toTimed, trailUntil,
+  OBS_COLOR, OBS_PERIOD_LABEL, STATUS_LABEL, alarmAlerts, filterRangers, initials, interpolateAt, isSafety, lastSeen, mergeAlerts, openSosAlerts, sortAlerts, sortRangers,
+  statusCounts, toTimed, trailUntil, type ObservationPeriod,
 } from './opsLogic'
 import { RangerStatusLabel, UrgentSosBanner } from './parts'
+import { ObservationDetailPanel } from './ObservationDetail'
 import { RangerDetailPanel } from './RangerDetail'
-import { MAP_FILL, SATELLITE_CONFIGURED, addMapControls, alertPins, rangerPoints, useAreaLayers, usePatrolTracks } from './useOpsMap'
+import { MAP_FILL, SATELLITE_CONFIGURED, addMapControls, alertPins, rangerPoints, useAreaLayers, useObservationLayer, usePatrolTracks } from './useOpsMap'
 
-const STATUSES: RangerStatus[] = ['active', 'paused', 'offline', 'sos']
+const STATUSES: RangerStatus[] = ['active', 'paused', 'online', 'offline', 'sos']
 const DAY_MS = 24 * 3600_000
 
 interface LayerState {
   rangers: boolean
   pins: boolean
+  observations: boolean
   tracks: boolean
   heat: boolean
   grts: boolean
   satellite: boolean
 }
 
-const DEFAULT_LAYERS: LayerState = { rangers: true, pins: true, tracks: true, heat: true, grts: true, satellite: false }
+const DEFAULT_LAYERS: LayerState = { rangers: true, pins: true, observations: true, tracks: true, heat: true, grts: true, satellite: false }
 
 export function LiveOpsPage() {
   const { areaId, area } = useArea()
@@ -53,6 +55,8 @@ export function LiveOpsPage() {
   const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS)
   const [filtersOpen, setFiltersOpen] = useState(true)
   const [routeShown, setRouteShown] = useState(true)
+  const [obsPeriod, setObsPeriod] = useState<ObservationPeriod>('24h')
+  const [selectedObs, setSelectedObs] = useState<Observation | null>(null)
   const mapRef = useRef<MlMap | null>(null)
 
   const alerts = useMemo(() => sortAlerts(mergeAlerts(ackQ.data, activeQ.data)), [activeQ.data, ackQ.data])
@@ -65,20 +69,24 @@ export function LiveOpsPage() {
   const tracks = usePatrolTracks(visible, { enabled: layers.tracks, highlightRangerId: routeShown ? selected : null })
   const replay = useReplay(selected)
 
+  const obs = useObservationLayer(areaId, { enabled: layers.observations, period: obsPeriod })
+  const openObs = selectedObs && !selected ? obs.find(selectedObs.client_uuid) ?? selectedObs : null
+
   const pins = useMemo(() => (layers.pins ? alertPins(alerts.filter((a) => alertType === 'all' || (alertType === 'safety') === isSafety(a))) : []), [alerts, alertType, layers.pins])
   const points = useMemo<MapPoint[]>(() => {
-    const pts: MapPoint[] = [...layersData.bases, ...pins]
+    const pts: MapPoint[] = [...layersData.bases, ...obs.points, ...pins]
     if (layers.rangers) pts.push(...rangerPoints(visible))
     if (replay.position) {
       pts.push({ id: `replay-${selected}`, kind: 'ranger', lat: replay.position.lat, lon: replay.position.lon, color: '#52B788', label: `Replay ${fmt.time(new Date(replay.t!).toISOString())}` })
     }
     return pts
-  }, [layersData.bases, pins, layers.rangers, visible, replay.position, replay.t, selected])
+  }, [layersData.bases, obs.points, pins, layers.rangers, visible, replay.position, replay.t, selected])
 
   const select = (id: string | null) => {
     const next = new URLSearchParams(params)
     if (id) next.set('ranger', id)
     else next.delete('ranger')
+    if (id) setSelectedObs(null)
     setParams(next, { replace: true })
     setRouteShown(true)
   }
@@ -94,6 +102,7 @@ export function LiveOpsPage() {
     setTeamId('')
     setStatuses([])
     setAlertType('all')
+    setObsPeriod('24h')
     setLayers(DEFAULT_LAYERS)
   }
 
@@ -115,11 +124,17 @@ export function LiveOpsPage() {
           tracks={layers.tracks ? tracks : undefined}
           route={replay.active ? replay.trail : undefined}
           points={points}
-          selectedPointId={selected}
+          selectedPointId={selected ?? openObs?.client_uuid ?? null}
           satellite={layers.satellite}
           onPointClick={(p) => {
             if (p.kind === 'ranger' && !p.id.startsWith('replay-')) select(p.id)
-            else if (p.kind === 'pin') navigate(`/alerts/${p.id}`)
+            else if (p.kind === 'observation') {
+              const o = obs.find(p.id)
+              if (o) {
+                if (selected) select(null)
+                setSelectedObs(o)
+              }
+            } else if (p.kind === 'pin') navigate(`/alerts/${p.id}`)
           }}
           onReady={(m) => {
             mapRef.current = m
@@ -183,6 +198,30 @@ export function LiveOpsPage() {
                   <span className="text-[12px] font-semibold tracking-[0.06em] uppercase text-ink-3">Layers</span>
                   <Toggle label="Ranger positions" checked={layers.rangers} onChange={setLayer('rangers')} />
                   <Toggle label="Threat pins" checked={layers.pins} onChange={setLayer('pins')} />
+                  <Toggle
+                    label="Observations"
+                    description={layers.observations ? (obs.error ? 'Did not load' : obs.loading ? 'Loading…' : `${obs.observations.length}${obs.truncated ? '+' : ''} in ${OBS_PERIOD_LABEL[obsPeriod].toLowerCase()}`) : undefined}
+                    checked={layers.observations}
+                    onChange={setLayer('observations')}
+                  />
+                  {layers.observations && (
+                    <div className="-mt-1 flex flex-col gap-2 pl-14">
+                      <Select value={obsPeriod} onChange={(e) => setObsPeriod(e.target.value as ObservationPeriod)} className="!h-10" aria-label="Observations period">
+                        {(['today', '24h', '7d'] as ObservationPeriod[]).map((v) => <option key={v} value={v}>{OBS_PERIOD_LABEL[v]}</option>)}
+                      </Select>
+                      {obs.categories.length > 0 && (
+                        <ul className="flex flex-col gap-1 text-[12px] text-ink-2" aria-label="Observation categories">
+                          {obs.categories.map((c) => (
+                            <li key={c.category} className="flex items-center gap-2">
+                              <span className="h-2.5 w-2.5 rounded-full" style={{ background: OBS_COLOR[c.category] ?? OBS_COLOR.other }} />
+                              <span className="flex-1">{fmt.titleCase(c.category)}</span>
+                              <span className="text-ink-3">{c.count}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                   <Toggle label="Patrol tracks" checked={layers.tracks} onChange={setLayer('tracks')} />
                   {layersData.aiRisk && <Toggle label="Risk heatmap" checked={layers.heat} onChange={setLayer('heat')} />}
                   {hasModule('grts') && <Toggle label="GRTS grid" checked={layers.grts} onChange={setLayer('grts')} />}
@@ -206,7 +245,16 @@ export function LiveOpsPage() {
           {selectedRanger && <ReplayBar replay={replay} ranger={selectedRanger} />}
         </AreaMap>
 
-        {selected ? (
+        {openObs ? (
+          <ObservationDetailPanel
+            key={openObs.client_uuid}
+            observation={openObs}
+            rangers={rangers}
+            cellLabel={layersData.cellLabel}
+            onClose={() => setSelectedObs(null)}
+            onRanger={(id) => select(id)}
+          />
+        ) : selected ? (
           <RangerDetailPanel
             key={selected}
             rangerId={selected}

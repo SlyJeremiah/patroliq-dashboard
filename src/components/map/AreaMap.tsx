@@ -36,7 +36,9 @@ export interface MapPoint {
   /** px radius */
   radius?: number
   label?: string
-  kind: 'ranger' | 'pin' | 'base' | 'collar'
+  kind: 'ranger' | 'pin' | 'base' | 'collar' | 'observation'
+  /** Material Symbols glyph (observation markers). */
+  icon?: string
   pulse?: 'active' | 'sos'
   dashed?: boolean
 }
@@ -278,6 +280,12 @@ function renderMarker(el: HTMLElement, p: MapPoint, selected: boolean) {
     el.innerHTML = `<span style="width:30px;height:30px;border-radius:8px;background:#102C26;border:2px solid #F7E7CE;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.45)"><span class="icon" style="font-size:18px;color:#F7E7CE">cabin</span></span>${
       p.label ? `<span style="margin-top:2px;font:700 11px Inter,sans-serif;color:#fff;white-space:nowrap;text-shadow:0 0 3px rgba(10,26,20,.95),0 1px 2px rgba(10,26,20,.95)">${escapeHtml(p.label)}</span>` : ''
     }`
+  } else if (p.kind === 'observation') {
+    const ring = selected ? 'box-shadow:0 0 0 4px rgba(82,183,136,0.6),0 1px 4px rgba(0,0,0,.45);' : 'box-shadow:0 1px 4px rgba(0,0,0,.45);'
+    el.innerHTML = `<span style="width:20px;height:20px;border-radius:10px;background:${p.color};border:2px solid #fff;${ring}display:flex;align-items:center;justify-content:center">${
+      p.icon ? `<span class="icon" style="font-size:12px;width:12px;height:12px;color:#fff">${escapeHtml(p.icon)}</span>` : ''
+    }</span>`
+    el.title = p.label ?? 'Observation'
   } else if (p.kind === 'collar') {
     el.innerHTML = `<span style="width:26px;height:26px;border-radius:13px;background:#F7E7CE;border:2px solid ${p.color};display:flex;align-items:center;justify-content:center"><span class="icon" style="font-size:15px;color:${p.color}">pets</span></span>`
   } else {

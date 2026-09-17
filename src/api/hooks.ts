@@ -1,6 +1,6 @@
 // React Query hooks for every dashboard endpoint (spec §5 + §7). Feature pages import from here.
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from './client'
+import { api, fetchBlob } from './client'
 import type {
   AlertItem, ApuBase, Area, AreaBoundary, AreaRisk, Assignment, AuditEntry, CellCollection, Coverage, DashboardSummary,
   Licence, Observation, OrgUsage, Page, Patrol, PlatformOrganisation, RangerDetail, RangerLive, Report, ReportFormat,
@@ -29,6 +29,7 @@ export const qk = {
   assignments: (params: object) => ['assignments', params] as const,
   users: (params: object) => ['users', params] as const,
   observations: (params: object) => ['observations', params] as const,
+  media: (id: string) => ['media', id] as const,
   patrols: (params: object) => ['patrols', params] as const,
   track: (uuid: string) => ['track', uuid] as const,
   positionsHistory: (params: object) => ['positions-history', params] as const,
@@ -114,9 +115,10 @@ export const useDispatchAlert = () =>
   useAlertMutation(({ id, note, responder_ids }: { id: string; note: string; responder_ids: string[] }) =>
     api.post<AlertItem>(`alerts/${id}/dispatch/`, { note, responder_ids }))
 
-export const useObservations = (params: { area_id?: string | null; since?: string; until?: string; category?: string; limit?: number } = {}) =>
+export const useObservations = (params: { area_id?: string | null; since?: string; until?: string; category?: string; limit?: number } = {}, opts: { enabled?: boolean } = {}) =>
   useQuery({
     queryKey: qk.observations(params),
+    enabled: opts.enabled ?? true,
     queryFn: async () => list(await api.get<Observation[] | Page<Observation>>('observations/', { ...params })),
     refetchInterval: LIVE_REFRESH_MS,
     placeholderData: keepPreviousData,
@@ -127,6 +129,20 @@ export const usePatrols = (params: { area_id?: string | null; ranger_id?: string
     queryKey: qk.patrols(params),
     queryFn: async () => list(await api.get<Patrol[] | Page<Patrol>>('patrols/', { ...params })),
     refetchInterval: LIVE_REFRESH_MS,
+  })
+
+/**
+ * Observation photo/video/audio as a Blob (the file endpoint needs the auth header, so no plain `<img src>`).
+ * Cached by media id; files never change. 404/403 are not retried (older photos may be missing on the server).
+ */
+export const useMediaBlob = (media: { id: string; url?: string | null } | null | undefined) =>
+  useQuery({
+    queryKey: qk.media(media?.id ?? '-'),
+    enabled: !!media?.id,
+    queryFn: ({ signal }) => fetchBlob(media!.url || `media/${media!.id}/file/`, signal),
+    staleTime: Infinity,
+    gcTime: 10 * 60_000,
+    retry: (count, e) => count < 1 && !(e instanceof Error && 'status' in e && [401, 403, 404, 410].includes((e as { status: number }).status)),
   })
 
 export const useTrack = (clientUuid?: string | null) =>

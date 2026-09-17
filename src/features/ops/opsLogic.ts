@@ -1,5 +1,6 @@
 // Pure helpers for the operations pages (alert ordering, ranger status counts, nearest units, replay interpolation).
-import type { AlertItem, RangerLive, RangerStatus, Severity } from '@/api/types'
+import type { AlertItem, Observation, RangerLive, RangerStatus, Severity } from '@/api/types'
+import type { MapPoint } from '@/components/map/AreaMap'
 
 // ------------------------------------------------------------------ alerts
 
@@ -132,13 +133,15 @@ export function statusLabel(status: string): string {
 export type StatusCounts = Record<RangerStatus, number> & { total: number }
 
 export function statusCounts(rangers: readonly Pick<RangerLive, 'status'>[]): StatusCounts {
-  const c: StatusCounts = { active: 0, paused: 0, offline: 0, sos: 0, total: rangers.length }
+  const c: StatusCounts = { active: 0, paused: 0, online: 0, offline: 0, sos: 0, total: rangers.length }
   for (const r of rangers) if (r.status in c) c[r.status] += 1
   return c
 }
 
-export const STATUS_LABEL: Record<RangerStatus, string> = { active: 'Active', paused: 'Paused', offline: 'Offline', sos: 'SOS' }
-const STATUS_RANK: Record<RangerStatus, number> = { sos: 0, active: 1, paused: 2, offline: 3 }
+export const STATUS_LABEL: Record<RangerStatus, string> = { active: 'Active', paused: 'Paused', online: 'Online', offline: 'Offline', sos: 'SOS' }
+/** Display/filter order everywhere a status list is shown. */
+export const RANGER_STATUSES: RangerStatus[] = ['sos', 'active', 'paused', 'online', 'offline']
+const STATUS_RANK: Record<RangerStatus, number> = { sos: 0, active: 1, paused: 2, online: 3, offline: 4 }
 
 export function initials(name?: string | null): string {
   return (name ?? '').split(/\s+/).filter(Boolean).slice(0, 2).map((s) => s[0]!.toUpperCase()).join('')
@@ -160,9 +163,9 @@ export function filterRangers<T extends RangerLive>(rangers: readonly T[], f: Ra
   })
 }
 
-/** SOS first, then active, paused, offline; by name within a status. */
+/** SOS first, then active, paused, online, offline; by name within a status. */
 export function sortRangers<T extends RangerLive>(rangers: readonly T[]): T[] {
-  return [...rangers].sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status] || a.full_name.localeCompare(b.full_name))
+  return [...rangers].sort((a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9) || a.full_name.localeCompare(b.full_name))
 }
 
 /** Most recent sign of life: last position ping or last sync. */
@@ -179,6 +182,85 @@ export function trackCandidates(rangers: readonly RangerLive[], cap = 15): strin
   return sortRangers(rangers.filter((r) => r.current_patrol))
     .slice(0, cap)
     .map((r) => r.current_patrol!.client_uuid)
+}
+
+// ------------------------------------------------------------------ observations
+
+export const OBS_COLOR: Record<string, string> = { wildlife: '#2D6A4F', threat: '#C0392B', carcass: '#7B2D8B', habitat: '#1A6496', infrastructure: '#A0522D', other: '#6C757D' }
+export const OBS_ICON: Record<string, string> = { wildlife: 'pets', threat: 'warning', carcass: 'skull', habitat: 'forest', infrastructure: 'construction', other: 'more_horiz' }
+export const OBS_CATEGORIES = ['wildlife', 'threat', 'carcass', 'habitat', 'infrastructure', 'other'] as const
+
+export type ObservationPeriod = 'today' | '24h' | '7d'
+export const OBS_PERIOD_LABEL: Record<ObservationPeriod, string> = { today: 'Today', '24h': 'Last 24 h', '7d': 'Last 7 days' }
+
+/**
+ * `since` for the observations query. Rounded down to 5 minutes so the query key stays stable between renders
+ * (the 30 s poll still picks up new observations; `until` is left open).
+ */
+export function observationSince(period: ObservationPeriod, now: number = Date.now()): string {
+  if (period === 'today') {
+    const d = new Date(now)
+    d.setHours(0, 0, 0, 0)
+    return d.toISOString()
+  }
+  const step = 5 * 60_000
+  const rounded = Math.floor(now / step) * step
+  return new Date(rounded - (period === '7d' ? 7 : 1) * 24 * 3600_000).toISOString()
+}
+
+export function observationKey(o: Pick<Observation, 'client_uuid' | 'id'>): string {
+  return o.client_uuid || o.id || ''
+}
+
+export function observationLabel(o: Pick<Observation, 'category' | 'subtype' | 'species_name' | 'count'>): string {
+  if (o.species_name) return `${o.species_name}${o.count ? ` · ${o.count}` : ''}`
+  return o.subtype ? kindLabel(o.subtype) : o.category.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+}
+
+/** `observer_name` when the API sends it, otherwise the ranger's name from the live list. */
+export function observerName(o: Pick<Observation, 'observer_name' | 'observer_id'>, rangers: readonly Pick<RangerLive, 'id' | 'full_name'>[] = []): string | null {
+  if (o.observer_name) return o.observer_name
+  if (!o.observer_id) return null
+  return rangers.find((r) => r.id === o.observer_id)?.full_name ?? null
+}
+
+/** "3 (2 male, 1 female)" style summary of count and sex; null when nothing is recorded. */
+export function sexSummary(o: Pick<Observation, 'count' | 'sex' | 'male_count' | 'female_count'>): string | null {
+  const parts: string[] = []
+  if (o.male_count) parts.push(`${o.male_count} male`)
+  if (o.female_count) parts.push(`${o.female_count} female`)
+  if (!parts.length && o.sex && o.sex !== 'unknown') parts.push(o.sex)
+  if (!parts.length && o.sex === 'unknown') parts.push('sex unknown')
+  return parts.length ? parts.join(', ') : null
+}
+
+export function photoCount(o: Pick<Observation, 'media'>): number {
+  return (o.media ?? []).filter((m) => m.kind === 'photo').length
+}
+
+/** Map markers for observations (kind `observation`, coloured by category; newest drawn last). */
+export function observationPoints(observations: readonly Observation[]): MapPoint[] {
+  return [...observations]
+    .filter((o) => Number.isFinite(o.lat) && Number.isFinite(o.lon))
+    .sort((a, b) => ts(a.recorded_at) - ts(b.recorded_at))
+    .map((o) => ({
+      id: observationKey(o),
+      kind: 'observation' as const,
+      lat: o.lat,
+      lon: o.lon,
+      color: OBS_COLOR[o.category] ?? OBS_COLOR.other!,
+      icon: OBS_ICON[o.category] ?? 'visibility',
+      label: observationLabel(o),
+    }))
+}
+
+/** Observations per category, in the fixed category order, only categories present. */
+export function observationCategoryCounts(observations: readonly Pick<Observation, 'category'>[]): { category: string; count: number }[] {
+  const counts = new Map<string, number>()
+  for (const o of observations) counts.set(o.category, (counts.get(o.category) ?? 0) + 1)
+  const known = OBS_CATEGORIES.filter((c) => counts.has(c)).map((c) => ({ category: c as string, count: counts.get(c)! }))
+  const other = [...counts.entries()].filter(([c]) => !(OBS_CATEGORIES as readonly string[]).includes(c)).map(([category, count]) => ({ category, count }))
+  return [...known, ...other]
 }
 
 // ------------------------------------------------------------------ geometry

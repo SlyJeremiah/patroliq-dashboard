@@ -4,14 +4,14 @@ import { useMemo } from 'react'
 import type { Feature, FeatureCollection, LineString } from 'geojson'
 import maplibregl, { type Map as MlMap } from 'maplibre-gl'
 import { api } from '@/api/client'
-import { LIVE_REFRESH_MS, qk, useApuBases, useAreaRisk, useCells } from '@/api/hooks'
-import type { AlertItem, RangerLive, TrackFeature } from '@/api/types'
+import { LIVE_REFRESH_MS, qk, useApuBases, useAreaRisk, useCells, useObservations } from '@/api/hooks'
+import type { AlertItem, Observation, RangerLive, TrackFeature } from '@/api/types'
 import { useAuth } from '@/auth/AuthContext'
 import type { HeatPoint, MapCell, MapPoint } from '@/components/map/AreaMap'
 import { pointLatLon } from '@/components/map/AreaMap'
 import { severityColor } from '@/components/ui'
 import { rangerStatusColor } from '@/lib/format'
-import { alertTitle, initials, isSafety, trackCandidates } from './opsLogic'
+import { alertTitle, initials, isSafety, observationCategoryCounts, observationKey, observationPoints, observationSince, trackCandidates, type ObservationPeriod } from './opsLogic'
 
 /**
  * Local workaround: maplibre-gl.css (unlayered) sets `.maplibregl-map{position:relative}`, which beats Tailwind's layered
@@ -88,6 +88,29 @@ export function alertPins(alerts: readonly AlertItem[]): MapPoint[] {
       ? []
       : [{ id: a.id, kind: 'pin' as const, lat: a.lat, lon: a.lon, color: isSafety(a) ? '#C0392B' : severityColor[a.severity], label: `${alertTitle(a)}, ${a.severity}`, radius: a.severity === 'critical' ? 17 : 14 }],
   )
+}
+
+/** Cap on observation markers drawn at once (HTML markers). */
+export const OBSERVATION_LIMIT = 500
+
+/** Observations layer for the selected area and period (polled every 30 s while enabled). */
+export function useObservationLayer(areaId: string | null, opts: { enabled: boolean; period: ObservationPeriod }) {
+  const since = observationSince(opts.period)
+  const q = useObservations({ area_id: areaId, since, limit: OBSERVATION_LIMIT }, { enabled: opts.enabled && !!areaId })
+  const data = opts.enabled ? q.data : undefined
+  return useMemo(() => {
+    const observations: Observation[] = data ?? []
+    const byKey = new Map(observations.map((o) => [observationKey(o), o]))
+    return {
+      observations,
+      points: observationPoints(observations),
+      categories: observationCategoryCounts(observations),
+      find: (key?: string | null) => (key ? byKey.get(key) : undefined),
+      loading: opts.enabled && q.isLoading,
+      error: opts.enabled ? q.error : null,
+      truncated: observations.length >= OBSERVATION_LIMIT,
+    }
+  }, [data, opts.enabled, q.isLoading, q.error])
 }
 
 /** Current-patrol tracks for up to `cap` rangers (SOS/active first). Tracks without geometry are skipped. */

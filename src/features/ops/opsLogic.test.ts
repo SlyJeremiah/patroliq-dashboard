@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { AlertItem, RangerLive } from '@/api/types'
+import { resolveApiRequest } from '@/api/client'
+import type { AlertItem, Observation, RangerLive } from '@/api/types'
 import {
   alarmAlerts, bearingDeg, chipCounts, compass, filterAlerts, filterRangers, formatElapsed, haversineM, interpolateAt, lastSeen,
-  mergeAlerts, nearestRangers, openSosAlerts, signalLabel, sortAlerts, stationarySince, statusCounts, toTimed, trackCandidates, trailUntil,
+  mergeAlerts, nearestRangers, observationCategoryCounts, observationPoints, observationSince, observerName, openSosAlerts, sexSummary, signalLabel, sortAlerts,
+  sortRangers, stationarySince, statusCounts, toTimed, trackCandidates, trailUntil,
 } from './opsLogic'
 
 const alert = (p: Partial<AlertItem>): AlertItem => ({
@@ -88,14 +90,20 @@ describe('rangers', () => {
     ranger({ id: 'b', full_name: 'Farai Ncube', status: 'sos', team_id: 't2', current_patrol: { client_uuid: 'p-b', started_at: '', status: 'active', distance_m: 0, patrol_type: 'foot' } }),
     ranger({ id: 'c', full_name: 'Rudo Chikore', status: 'offline', team_id: 't1', employee_id: 'RGR-2026-042' }),
     ranger({ id: 'd', full_name: 'Sipho Ndlovu', status: 'paused', team_id: 't2' }),
+    ranger({ id: 'e', full_name: 'Nyasha Dube', status: 'online', team_id: 't1' }),
   ]
 
   it('counts statuses', () => {
-    expect(statusCounts(rangers)).toEqual({ active: 1, paused: 1, offline: 1, sos: 1, total: 4 })
+    expect(statusCounts(rangers)).toEqual({ active: 1, paused: 1, online: 1, offline: 1, sos: 1, total: 5 })
+  })
+
+  it('sorts SOS → active → paused → online → offline', () => {
+    expect(sortRangers(rangers).map((r) => r.id)).toEqual(['b', 'a', 'd', 'e', 'c'])
   })
 
   it('filters by team, status and search', () => {
-    expect(filterRangers(rangers, { teamId: 't1' }).map((r) => r.id)).toEqual(['a', 'c'])
+    expect(filterRangers(rangers, { teamId: 't1' }).map((r) => r.id)).toEqual(['a', 'c', 'e'])
+    expect(filterRangers(rangers, { statuses: ['online'] }).map((r) => r.id)).toEqual(['e'])
     expect(filterRangers(rangers, { statuses: ['sos', 'paused'] }).map((r) => r.id)).toEqual(['b', 'd'])
     expect(filterRangers(rangers, { search: 'rgr-2026-042' }).map((r) => r.id)).toEqual(['c'])
   })
@@ -187,5 +195,73 @@ describe('formatting', () => {
   it('labels signal levels', () => {
     expect(signalLabel(1)).toBe('Weak')
     expect(signalLabel(null)).toBe('Unknown')
+  })
+})
+
+const observation = (p: Partial<Observation>): Observation => ({
+  client_uuid: p.client_uuid ?? Math.random().toString(36).slice(2),
+  area_id: 'area-1',
+  category: 'wildlife',
+  alert_manager: false,
+  lat: -17.5,
+  lon: 30.95,
+  recorded_at: '2026-09-15T08:00:00Z',
+  ...p,
+})
+
+describe('observations', () => {
+  it('builds observation map points coloured by category, oldest first', () => {
+    const pts = observationPoints([
+      observation({ client_uuid: 'new', category: 'threat', subtype: 'snare', recorded_at: '2026-09-15T10:00:00Z' }),
+      observation({ client_uuid: 'old', species_name: 'Elephant', count: 4, recorded_at: '2026-09-15T07:00:00Z' }),
+      observation({ client_uuid: 'bad', lat: Number.NaN }),
+    ])
+    expect(pts.map((p) => p.id)).toEqual(['old', 'new'])
+    expect(pts[0]).toMatchObject({ kind: 'observation', color: '#2D6A4F', icon: 'pets', label: 'Elephant · 4' })
+    expect(pts[1]).toMatchObject({ kind: 'observation', color: '#C0392B', label: 'Snare found' })
+  })
+
+  it('counts categories in a fixed order', () => {
+    expect(observationCategoryCounts([observation({ category: 'threat' }), observation({}), observation({ category: 'threat' })])).toEqual([
+      { category: 'wildlife', count: 1 },
+      { category: 'threat', count: 2 },
+    ])
+  })
+
+  it('resolves the observer name from the ranger list when the API omits it', () => {
+    const rangers = [{ id: 'r1', full_name: 'Tendai Moyo' }]
+    expect(observerName({ observer_name: 'Given Name', observer_id: 'r1' }, rangers)).toBe('Given Name')
+    expect(observerName({ observer_id: 'r1' }, rangers)).toBe('Tendai Moyo')
+    expect(observerName({ observer_id: 'r2' }, rangers)).toBeNull()
+    expect(observerName({}, rangers)).toBeNull()
+  })
+
+  it('summarises sex counts', () => {
+    expect(sexSummary({ male_count: 2, female_count: 1, sex: 'mixed' })).toBe('2 male, 1 female')
+    expect(sexSummary({ sex: 'female' })).toBe('female')
+    expect(sexSummary({})).toBeNull()
+  })
+
+  it('computes a stable period start', () => {
+    const now = Date.parse('2026-09-15T10:03:27Z')
+    expect(observationSince('24h', now)).toBe('2026-09-14T10:00:00.000Z')
+    expect(observationSince('24h', now + 60_000)).toBe(observationSince('24h', now))
+    expect(observationSince('7d', now)).toBe('2026-09-08T10:00:00.000Z')
+    const today = new Date(observationSince('today', now))
+    expect([today.getHours(), today.getMinutes()]).toEqual([0, 0])
+  })
+})
+
+describe('media requests', () => {
+  const base = 'https://api.example.org/api/v1/'
+  it('sends the token only to URLs under the API base', () => {
+    expect(resolveApiRequest('https://api.example.org/api/v1/media/m1/file/', base)).toEqual({ url: 'https://api.example.org/api/v1/media/m1/file/', withToken: true })
+    expect(resolveApiRequest('media/m1/file/', base)).toEqual({ url: 'https://api.example.org/api/v1/media/m1/file/', withToken: true })
+    expect(resolveApiRequest('https://cdn.example.com/photo.jpg', base)).toEqual({ url: 'https://cdn.example.com/photo.jpg', withToken: false })
+    expect(resolveApiRequest('https://api.example.org/other/m1', base).withToken).toBe(false)
+  })
+
+  it('re-points an API path on another origin at the configured base', () => {
+    expect(resolveApiRequest('http://internal:8000/api/v1/media/m1/file/?x=1', base)).toEqual({ url: 'https://api.example.org/api/v1/media/m1/file/?x=1', withToken: true })
   })
 })

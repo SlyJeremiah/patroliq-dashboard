@@ -10,7 +10,7 @@ import { STATUS_LABEL, filterRangers, initials, lastSeen, sortRangers, statusCou
 import { RangerStatusLabel } from './parts'
 import { RangerDetailContent } from './RangerDetail'
 
-const STATUSES: RangerStatus[] = ['sos', 'active', 'paused', 'offline']
+const STATUSES: RangerStatus[] = ['sos', 'active', 'paused', 'online', 'offline']
 
 function Battery({ pct }: { pct?: number | null }) {
   if (pct == null) return <span className="text-ink-3">—</span>
@@ -103,7 +103,7 @@ export function RangersPage() {
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Rangers"
-        subtitle={`${area?.name ?? 'All areas'} · ${counts.total} rangers · ${counts.active} active · ${counts.paused} paused · ${counts.offline} offline${counts.sos ? ` · ${counts.sos} SOS` : ''}`}
+        subtitle={`${area?.name ?? 'All areas'} · ${counts.total} rangers · ${counts.active} active · ${counts.paused} paused · ${counts.online} online · ${counts.offline} offline${counts.sos ? ` · ${counts.sos} SOS` : ''}`}
       />
       <div className="flex flex-wrap items-center gap-3 px-6 pb-3">
         <div className="relative w-72">
